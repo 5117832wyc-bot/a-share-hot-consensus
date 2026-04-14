@@ -23,6 +23,10 @@ python monitor.py --once --force
 python monitor.py --loop
 ```
 
+**是否「像选股一样盘中实时」**：本程序与 ab-stock-quant 的盘中监控 **一样属于 HTTP 轮询、定时拉数**，不是交易所逐笔级「实时」。默认 `HC_POLL_INTERVAL_SEC=90` 一轮（可改）；需 **长期跑** 请用 `--loop` 或 crontab，否则只执行你手动/cron 的那一次。选股侧是 `intraday_monitor_ab_shape.py` 等 **另一进程**，二者互不影响。
+
+**企业微信**：单条 markdown 有 **约 4096 字节**上限；正文超长时会 **自动拆成多段**依次发送（每段带「第 i/n 段」），无需手剪。可调 `HC_WECHAT_CHUNK_DELAY_SEC` 控制段间间隔。
+
 环境变量要点：
 
 | 变量 | 说明 |
