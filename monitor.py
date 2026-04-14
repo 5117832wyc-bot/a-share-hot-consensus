@@ -8,15 +8,16 @@ import os
 import sys
 import time
 
-from hot_consensus.deepseek_themes import analyze_titles
+from hot_consensus.deepseek_joint import analyze_leaders_and_cls, format_joint_markdown
 from hot_consensus.env import load_repo_dotenv, repo_root
 from hot_consensus.fetch import (
     fetch_cls_telegraph,
     fetch_hot_up,
     fetch_zt_pool,
     new_cls_rows,
+    recent_cls_titles,
 )
-from hot_consensus.fusion import build_fusion, signature
+from hot_consensus.fusion import build_fusion, fusion_rows_to_dicts, rule_based_hint, signature
 from hot_consensus.state import cls_seen_set, load_state, save_state, trim_seen
 from hot_consensus.timeutil import (
     date_str_yyyymmdd,
@@ -51,8 +52,8 @@ def run_cycle(*, force: bool) -> None:
     key_only = os.getenv("HC_CLS_KEY_ONLY", "0").strip() == "1"
     top_n = max(5, min(50, int(os.getenv("HC_TOP_N", "15"))))
     min_push = max(30, int(os.getenv("HC_MIN_PUSH_INTERVAL_SEC", "300")))
-    # 有新电报时允许更短冷却（秒），避免长时间吞消息
     min_push_cls = max(30, int(os.getenv("HC_MIN_PUSH_ON_CLS_SEC", "120")))
+    cls_recent_n = max(10, min(40, int(os.getenv("HC_CLS_RECENT_FOR_AI", "22"))))
 
     zt = fetch_zt_pool(today)
     hot = fetch_hot_up()
@@ -98,12 +99,15 @@ def run_cycle(*, force: bool) -> None:
         state["cls_seen"] = list(seen)
         trim_seen(state)
 
-    # 构建 markdown
+    leaders_payload = fusion_rows_to_dicts(fusion)
+    cls_new_title_list = [str(x.get("title", "")) for x in new_cls]
+    cls_recent_for_ai = recent_cls_titles(cls_df, n=cls_recent_n)
+
     lines = [
         "### 热门龙头情报",
-        f"> 日期 {shanghai_today()} 上海 {shanghai_now().strftime('%H:%M:%S')}",
+        f"> 日期 {shanghai_today()} 上海 {shanghai_now().strftime('%H:%M:%S')} | 涨停池约 {len(zt)} 只 | 飙升榜约 {len(hot)} 只",
         "",
-        "**融合 Top（涨停池+飙升）**",
+        f"**融合 Top {top_n}（盘面辅助）**",
     ]
     if fusion is None or fusion.empty:
         lines.append("（无数据或接口失败）")
@@ -111,36 +115,55 @@ def run_cycle(*, force: bool) -> None:
         for rank, (_, row) in enumerate(fusion.iterrows(), 1):
             code = row.get("code", "")
             name = row.get("name", "")
-            sc = row.get("score", 0)
-            lb = row.get("zt_lb", 0)
-            hr = row.get("hot_rank", "")
-            hr_s = ""
+            sc = float(row.get("score", 0) or 0)
+            hint = rule_based_hint(row)
+            zf = row.get("zf")
+            zf_s = ""
             try:
-                if hr is not None and str(hr) != "nan" and float(hr) == float(hr):
-                    hr_s = f"人气{float(hr):.0f}"
+                if zf is not None and float(zf) == float(zf):
+                    zf_s = f" 涨跌幅≈{float(zf):.2f}%"
             except (TypeError, ValueError):
                 pass
             lines.append(
-                f"{rank}. `{code}` {name}  score={float(sc):.1f} 连板={float(lb):.0f} {hr_s}".strip()
+                f"{rank}. **`{code}` {name}**  score≈{sc:.1f}{zf_s}\n"
+                f"> 快照：{hint}"
             )
 
     lines.extend(["", "**财联社 · 本批新增**"])
     if not new_cls:
-        lines.append("（无新增）")
+        lines.append("（本批无新增；下方「近期脉络」仍参与 AI 分析）")
     else:
-        for it in new_cls[:10]:
-            t = it.get("title", "")[:120]
-            lines.append(f"- {t}")
+        for it in new_cls[:15]:
+            t = str(it.get("title", ""))[:300]
+            tm = str(it.get("time", "") or "")
+            lines.append(f"- [{tm}] {t}")
 
-    ds_md = ""
-    if os.getenv("HC_DEEPSEEK_ENABLE", "0").strip() == "1" and new_cls:
-        titles = [str(x.get("title", "")) for x in new_cls]
-        ans = analyze_titles(titles)
-        if ans:
-            ds_md = "\n**DeepSeek 摘要**\n```\n" + str(ans)[:1200] + "\n```\n"
+    lines.extend(["", "**财联社 · 近期脉络（标题）**"])
+    tail = cls_recent_for_ai[-15:] if len(cls_recent_for_ai) > 15 else cls_recent_for_ai
+    if not tail:
+        lines.append("（暂无）")
+    else:
+        for t in tail:
+            lines.append(f"- {t[:200]}")
 
-    body = "\n".join(lines) + "\n" + ds_md
-    body += "\n> 数据来自 AkShare / 东财 / 财联社；非投资建议。"
+    joint_md = ""
+    if os.getenv("HC_DEEPSEEK_ENABLE", "0").strip() == "1":
+        joint = analyze_leaders_and_cls(
+            leaders_payload,
+            cls_new_title_list,
+            cls_recent_for_ai,
+        )
+        if joint:
+            joint_md = format_joint_markdown(joint)
+        else:
+            joint_md = "\n**AI 联合分析**：调用失败或未返回 JSON，请查看日志。\n"
+
+    body = "\n".join(lines) + "\n" + joint_md
+    body += "\n> 数据来自 AkShare / 东财 / 财联社；AI 为归纳非投资建议。"
+
+    max_len = int(os.getenv("HC_MARKDOWN_MAX", "3600"))
+    if len(body) > max_len:
+        body = body[: max_len - 30] + "\n\n…(正文过长已截断，可调 HC_MARKDOWN_MAX)"
 
     ok = push_markdown(body)
     if ok:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import akshare as ak
@@ -36,13 +37,19 @@ def fetch_zt_pool(date_yyyymmdd: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def fetch_hot_up() -> pd.DataFrame:
-    try:
-        df = ak.stock_hot_up_em()
-        return df if df is not None and not df.empty else pd.DataFrame()
-    except Exception:
-        log.exception("stock_hot_up_em 失败")
-        return pd.DataFrame()
+def fetch_hot_up(max_tries: int = 3) -> pd.DataFrame:
+    delay = 0.6
+    for attempt in range(max_tries):
+        try:
+            df = ak.stock_hot_up_em()
+            return df if df is not None and not df.empty else pd.DataFrame()
+        except Exception:
+            if attempt >= max_tries - 1:
+                log.exception("stock_hot_up_em 失败（已重试 %s 次）", max_tries)
+            else:
+                log.warning("stock_hot_up_em 第 %s 次失败，将重试", attempt + 1)
+            time.sleep(delay * (attempt + 1))
+    return pd.DataFrame()
 
 
 def fetch_cls_telegraph(key_only: bool = False) -> pd.DataFrame:
@@ -89,6 +96,14 @@ def new_cls_rows(
         if len(new_items) >= max_rows:
             break
     return new_items, new_hashes
+
+
+def recent_cls_titles(df: pd.DataFrame, n: int = 18) -> List[str]:
+    """取电报列表中最近 n 条标题（用于无新增时仍做脉络/AI 分析）。"""
+    if df.empty or "标题" not in df.columns:
+        return []
+    titles = [str(x)[:400] for x in df["标题"].astype(str).tolist() if str(x).strip()]
+    return titles[-n:] if len(titles) > n else titles
 
 
 def fetch_lhb_detail(start_yyyymmdd: str, end_yyyymmdd: str) -> pd.DataFrame:
