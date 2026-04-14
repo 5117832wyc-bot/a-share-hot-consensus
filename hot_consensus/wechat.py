@@ -8,8 +8,21 @@ import requests
 
 log = logging.getLogger(__name__)
 
-# 企业微信 markdown 单条建议控制在 3800 字以内
-MAX_MD_LEN = 3800
+# 企业微信 errcode 40058：markdown.content 总长度上限约 4096 **字节**（UTF-8），非字符数
+MAX_MD_BYTES = int(os.getenv("HC_WECHAT_MD_MAX_BYTES", "4000"))
+
+
+def _truncate_utf8_bytes(text: str, max_bytes: int) -> str:
+    raw = text.encode("utf-8")
+    if len(raw) <= max_bytes:
+        return text
+    cut = raw[: max_bytes - 40]
+    while cut:
+        try:
+            return cut.decode("utf-8") + "\n\n…(已按字节截断以符合企业微信长度上限)"
+        except UnicodeDecodeError:
+            cut = cut[:-1]
+    return "…"
 
 
 def webhook_url() -> str:
@@ -24,7 +37,7 @@ def push_markdown(content: str, timeout: int = 45) -> bool:
     if not url:
         log.error("未配置 HC_WECHAT_WEBHOOK 或 WECHAT_WEBHOOK")
         return False
-    body = content if len(content) <= MAX_MD_LEN else content[: MAX_MD_LEN - 20] + "\n\n…(截断)"
+    body = _truncate_utf8_bytes(content, MAX_MD_BYTES)
     try:
         r = requests.post(
             url,
