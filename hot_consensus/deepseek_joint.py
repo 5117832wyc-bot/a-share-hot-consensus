@@ -1,4 +1,4 @@
-"""DeepSeek：龙头逐只说明 + 财联社分析 + 新闻与榜单联动。"""
+"""DeepSeek：财联社整合（不列新闻）+ 方向与候选票 + 与榜单联动。"""
 from __future__ import annotations
 
 import json
@@ -9,15 +9,12 @@ from typing import Any, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 
-def analyze_leaders_and_cls(
+def analyze_integrated_cls_and_leaders(
     leaders: List[Dict[str, Any]],
-    cls_new_titles: List[str],
-    cls_recent_titles: List[str],
+    cls_corpus: str,
 ) -> Optional[Dict[str, Any]]:
     """
-    leaders: fusion_rows_to_dicts 输出（含 rule_hint）。
-    cls_new_titles: 本批新增电报标题。
-    cls_recent_titles: 近期电报标题（脉络，可与 new 重叠去重由调用方控制）。
+    cls_corpus：仅供模型阅读的标题+正文截断拼接，**不得**出现在最终推送正文中。
     """
     key = os.getenv("DEEPSEEK_API_KEY", "").strip()
     if not key:
@@ -32,50 +29,57 @@ def analyze_leaders_and_cls(
     model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat"
     client = OpenAI(api_key=key, base_url=base)
 
-    leaders_json = json.dumps(leaders, ensure_ascii=False)[:12000]
-    new_block = "\n".join(f"- {t[:500]}" for t in cls_new_titles[:25]) or "（本批无新增电报）"
-    recent_block = "\n".join(f"- {t[:400]}" for t in cls_recent_titles[:35]) or "（无）"
+    leaders_json = json.dumps(leaders, ensure_ascii=False)[:14000]
+    corp = (cls_corpus or "").strip()
+    if not corp:
+        corp = "（当前未拉到财联社正文，仅依据榜单做保守归纳）"
 
-    user = f"""任务：结合「盘面龙头榜单」与「财联社电报」做联合分析。
+    user = f"""你是 A 股快讯与盘面联动分析师。下列【财联社语料】仅为你内部阅读，用于整合判断，**禁止**在输出中逐条复述或枚举新闻标题。
 
-【龙头榜单·结构化】（含代码与规则层提示 rule_hint，勿编造涨跌幅/成交额数字，可引用 rule_hint）
+【龙头榜单·结构化】（含 rule_hint，勿编造数值）
 {leaders_json}
 
-【财联社·本批新增标题】
-{new_block}
+【财联社语料·内部材料】
+{corp[:28000]}
 
-【财联社·近期电报标题脉络】（用于判断叙事主线，可能与上表重叠）
-{recent_block}
-
-请输出**仅一个 JSON 对象**（不要 markdown 代码围栏），UTF-8，字段如下：
+请输出**仅一个 JSON**（不要 markdown 围栏），字段严格如下：
 {{
   "market_tone": "偏多|中性|偏空",
-  "cls_analysis": "对财联社电报的整体解读：市场在讨论什么主线、政策/行业情绪（3～6句）",
-  "theme_bridge": "电报主线与上述龙头榜单的叠加关系：哪些票可能受益或被点名（2～5句）",
-  "leader_notes": [
-    {{"code":"6位代码","name":"简称","situation":"结合盘面+新闻的逐只判断（2～4句）","news_touch":"电报是否直接或间接相关：相关则写主题关键词；无则写「电报未直接点名」"}}
+  "cls_synthesis": "对财联社快讯的整合判断，4～8 句话；写主线、政策/行业情绪、与盘面的关系；**禁止**出现「第一条、第二条」或逐条新闻列举",
+  "directions": [
+    {{
+      "theme": "方向或主题名（简短）",
+      "outlook": "可能走强|结构性机会|震荡观察|谨慎",
+      "bias_reason": "为何当前叙事可能指向该方向（1～3 句，综合语料与榜单，不抄新闻原文）",
+      "watchlist": [
+        {{
+          "code": "6位或空字符串",
+          "name": "简称或空",
+          "evidence": "盘面共振|新闻叙事|榜单交集|纯叙事推断",
+          "hint": "一句说明（若与榜单 code 重合请标明）"
+        }}
+      ]
+    }}
   ],
-  "dragons_from_news": [
-    {{"code":"6位或空","name":"若代码不确定可写简称","reason":"从新闻用语推断的龙头/核心标的线索（勿编造具体价位）"}}
-  ],
-  "risks": "一句风控提示（如追高风险、题材一日游等）"
+  "index_alignment": "当前叙事与 Top 榜单标的的共振或背离（1～3 句）",
+  "risks": "一句风险提示"
 }}
 
-要求：
-1. leader_notes **必须覆盖榜单中每一个 code**（顺序可与榜单一致）。
-2. 不得捏造具体股价、涨跌幅数值；盘面事实以 rule_hint 为准。
-3. mentioned_codes 从新闻与榜单推断，不确定的 code 置空或只写行业级判断。
+硬性要求：
+1. directions 数组 **2～4 个**主题；每个 watchlist **最多 5 条**，优先填 6 位代码；拿不准 code 可只写 name 并标「待核实」。
+2. evidence 必须四选一；「纯叙事推断」表示未在榜单共振、波动大。
+3. 输出中 **不得**包含财联社单条新闻的原文照抄或编号列表。
 """
 
     try:
         resp = client.chat.completions.create(
             model=model,
-            temperature=0.25,
-            max_tokens=int(os.getenv("HC_DEEPSEEK_MAX_TOKENS", "3500")),
+            temperature=0.22,
+            max_tokens=int(os.getenv("HC_DEEPSEEK_MAX_TOKENS", "3200")),
             messages=[
                 {
                     "role": "system",
-                    "content": "你是 A 股题材与快讯分析助手，只输出合法 JSON，不编造行情数字。",
+                    "content": "只输出合法 JSON。不编造股价、涨跌幅、成交额。不逐条列举新闻。",
                 },
                 {"role": "user", "content": user},
             ],
@@ -87,49 +91,61 @@ def analyze_leaders_and_cls(
                 text = text.rsplit("```", 1)[0]
         return json.loads(text)
     except Exception:
-        log.exception("DeepSeek 联合分析失败")
+        log.exception("DeepSeek 整合分析失败")
         return None
 
 
-def format_joint_markdown(data: Dict[str, Any]) -> str:
-    """将 JSON 转为企业微信 markdown 片段。"""
-    lines: List[str] = ["", "**AI 联合分析（DeepSeek）**"]
+def format_integrated_markdown(data: Dict[str, Any]) -> str:
+    """推送正文：整合观点 + 方向与标的，不含新闻列表。"""
+    lines: List[str] = ["", "### 财联社整合 · 方向与标的（无新闻逐条列举）"]
     mt = data.get("market_tone")
     if mt:
-        lines.append(f"- 市场情绪：**{mt}**")
-    ca = data.get("cls_analysis")
-    if ca:
-        lines.extend(["", "**财联社解读**", str(ca)[:1500]])
-    tb = data.get("theme_bridge")
-    if tb:
-        lines.extend(["", "**电报 × 榜单联动**", str(tb)[:1200]])
+        lines.append(f"市场情绪：**{mt}**")
 
-    lns = data.get("leader_notes")
-    if isinstance(lns, list) and lns:
-        lines.extend(["", "**逐只龙头（结合新闻）**"])
-        for it in lns[:25]:
-            if not isinstance(it, dict):
+    syn = data.get("cls_synthesis")
+    if syn:
+        lines.extend(["", "**整合观点**", str(syn)[:2000]])
+
+    dirs = data.get("directions")
+    if isinstance(dirs, list) and dirs:
+        lines.extend(["", "**可能走强 / 值得跟踪的方向**"])
+        for i, d in enumerate(dirs[:6], 1):
+            if not isinstance(d, dict):
                 continue
-            code = it.get("code", "")
-            name = it.get("name", "")
-            sit = it.get("situation", "")
-            nt = it.get("news_touch", "")
-            lines.append(f"- `{code}` {name}")
-            if sit:
-                lines.append(f"  - 判断：{str(sit)[:500]}")
-            if nt:
-                lines.append(f"  - 电报关联：{str(nt)[:300]}")
+            theme = str(d.get("theme", "") or "")[:80]
+            out = str(d.get("outlook", "") or "")[:40]
+            br = str(d.get("bias_reason", "") or "")[:400]
+            lines.append(f"{i}. **{theme}** · *{out}*")
+            if br:
+                lines.append(f"   {br}")
+            wl = d.get("watchlist")
+            if isinstance(wl, list):
+                for w in wl[:6]:
+                    if not isinstance(w, dict):
+                        continue
+                    code = str(w.get("code", "") or "").strip()
+                    name = str(w.get("name", "") or "").strip()
+                    ev = str(w.get("evidence", "") or "").strip()
+                    hint = str(w.get("hint", "") or "").strip()[:120]
+                    cpart = f"`{code}`" if len(code) == 6 else "（代码待核实）"
+                    lines.append(f"   - {cpart} {name} 〔{ev}〕 {hint}".strip())
 
-    dr = data.get("dragons_from_news")
-    if isinstance(dr, list) and dr:
-        lines.extend(["", "**从新闻用语提取的龙头线索**"])
-        for it in dr[:12]:
-            if isinstance(it, dict):
-                lines.append(
-                    f"- `{it.get('code','')}` {it.get('name','')}：{str(it.get('reason',''))[:200]}"
-                )
+    ia = data.get("index_alignment")
+    if ia:
+        lines.extend(["", "**与榜单共振**", str(ia)[:800]])
 
     rk = data.get("risks")
     if rk:
-        lines.extend(["", f"> 风险提示：{str(rk)[:400]}"])
+        lines.extend(["", f"> 风险提示：{str(rk)[:500]}"])
     return "\n".join(lines)
+
+
+# 兼容旧名
+def analyze_leaders_and_cls(
+    leaders: List[Dict[str, Any]],
+    cls_new_titles: List[str],
+    cls_recent_titles: List[str],
+) -> Optional[Dict[str, Any]]:
+    """已弃用：请使用 analyze_integrated_cls_and_leaders + cls_corpus_for_llm。"""
+    corp = "\n".join(cls_new_titles[:30] + cls_recent_titles[:40])
+    return analyze_integrated_cls_and_leaders(leaders, corp)

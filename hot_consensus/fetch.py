@@ -106,6 +106,30 @@ def recent_cls_titles(df: pd.DataFrame, n: int = 18) -> List[str]:
     return titles[-n:] if len(titles) > n else titles
 
 
+def cls_corpus_for_llm(
+    df: pd.DataFrame,
+    max_items: int = 45,
+    title_max: int = 220,
+    content_max: int = 160,
+) -> str:
+    """
+    供模型内部阅读的财联社语料（不推送到用户）。
+    取时间序列上最近若干条：标题 + 正文截断。
+    """
+    if df.empty or "标题" not in df.columns:
+        return ""
+    tail = df.tail(max(max_items, 1))
+    content_col = "内容" if "内容" in df.columns else "标题"
+    lines: List[str] = []
+    for _, row in tail.iterrows():
+        title = str(row.get("标题", "") or "")[:title_max]
+        body = str(row.get(content_col, "") or "")[:content_max].replace("\n", " ")
+        if not title.strip():
+            continue
+        lines.append(f"「{title}」{body}")
+    return "\n".join(lines)
+
+
 def fetch_lhb_detail(start_yyyymmdd: str, end_yyyymmdd: str) -> pd.DataFrame:
     try:
         df = ak.stock_lhb_detail_em(start_date=start_yyyymmdd, end_date=end_yyyymmdd)
