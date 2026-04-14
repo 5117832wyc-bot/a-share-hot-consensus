@@ -19,23 +19,43 @@ def load_state() -> Dict[str, Any]:
     path = state_path()
     if not path.is_file() or path.stat().st_size == 0:
         return {
-            "version": 1,
+            "version": 2,
             "cls_seen": [],
             "last_push_ts": 0.0,
             "last_signature": "",
+            "last_snap_hash": "",
+            "last_auction_push_ts": 0.0,
         }
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
-            return {"version": 1, "cls_seen": [], "last_push_ts": 0.0, "last_signature": ""}
+            return {
+                "version": 2,
+                "cls_seen": [],
+                "last_push_ts": 0.0,
+                "last_signature": "",
+                "last_snap_hash": "",
+                "last_auction_push_ts": 0.0,
+            }
         data.setdefault("version", 1)
         data.setdefault("cls_seen", [])
         data.setdefault("last_push_ts", 0.0)
         data.setdefault("last_signature", "")
+        data.setdefault("last_snap_hash", "")
+        data.setdefault("last_auction_push_ts", 0.0)
+        if int(data.get("version", 1)) < 2:
+            data["version"] = 2
         return data
     except (json.JSONDecodeError, OSError):
-        return {"version": 1, "cls_seen": [], "last_push_ts": 0.0, "last_signature": ""}
+        return {
+            "version": 2,
+            "cls_seen": [],
+            "last_push_ts": 0.0,
+            "last_signature": "",
+            "last_snap_hash": "",
+            "last_auction_push_ts": 0.0,
+        }
 
 
 def save_state(data: Dict[str, Any]) -> None:

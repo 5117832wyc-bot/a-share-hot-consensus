@@ -1,5 +1,8 @@
-# 热门龙头情报：交易时段每 3 分钟一轮（与 monitor.py --loop 二选一）
-# */3 9-11,13-15 * * 1-5 cd /root/code/a-share-hot-consensus && /path/to/python monitor.py --once >>/root/code/a-share-hot-consensus/cron.log 2>&1
+# 盘中：与 monitor.py --loop 二选一；若不用 loop，可用 cron 每 45s~1min 跑一次 once
+# * 9-11,13-15 * * 1-5 cd /root/code/a-share-hot-consensus && /path/to/python monitor.py --once >>/root/code/a-share-hot-consensus/cron.log 2>&1
+
+# 早盘/集合竞价（示例：9:26、9:31、9:35；需 HC_AUCTION_SLOT=any 若机器不在该时刻）
+# 26,31,35 9 * * 1-5 cd /root/code/a-share-hot-consensus && /path/to/python auction_morning.py --force >>/root/code/a-share-hot-consensus/auction.log 2>&1
 
 # 盘后龙虎榜（约 17:00 后）
 # 10 17 * * 1-5 cd /root/code/a-share-hot-consensus && /path/to/python lhb_digest.py >>/root/code/a-share-hot-consensus/lhb_digest.log 2>&1

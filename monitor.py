@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""盘中轮询：涨停池 + 飙升榜 + 财联社（仅作 AI 语料）→ 融合 → 企业微信。"""
+"""盘中轮询：涨停池 + 飙升榜 + 财联社（语料）+ 板块强弱 → 融合 → 企业微信。"""
 from __future__ import annotations
 
 import argparse
@@ -8,6 +8,7 @@ import os
 import sys
 import time
 
+from hot_consensus.cls_gate import filter_important_new_items
 from hot_consensus.deepseek_joint import analyze_integrated_cls_and_leaders, format_integrated_markdown
 from hot_consensus.env import load_repo_dotenv, repo_root
 from hot_consensus.fetch import (
@@ -18,6 +19,8 @@ from hot_consensus.fetch import (
     new_cls_rows,
 )
 from hot_consensus.fusion import build_fusion, fusion_rows_to_dicts, rule_based_hint, signature
+from hot_consensus.sector_fetch import fetch_concept_spot_summary
+from hot_consensus.snapshot import fusion_snapshot_hash
 from hot_consensus.state import cls_seen_set, load_state, save_state, trim_seen
 from hot_consensus.timeutil import (
     date_str_yyyymmdd,
@@ -56,6 +59,8 @@ def run_cycle(*, force: bool) -> None:
     corp_items = max(15, min(80, int(os.getenv("HC_CLS_CORPUS_ITEMS", "45"))))
     title_max = max(80, min(400, int(os.getenv("HC_CLS_TITLE_MAX", "220"))))
     content_max = max(60, min(400, int(os.getenv("HC_CLS_CONTENT_MAX", "160"))))
+    important_only = os.getenv("HC_CLS_IMPORTANT_ONLY", "1").strip() == "1"
+    sector_on = os.getenv("HC_SECTOR_ENABLE", "1").strip() == "1"
 
     zt = fetch_zt_pool(today)
     hot = fetch_hot_up()
@@ -63,43 +68,53 @@ def run_cycle(*, force: bool) -> None:
 
     fusion, _ = build_fusion(zt, hot, top_n=top_n)
     sig = signature(zt, hot, fusion)
+    snap_hash = fusion_snapshot_hash(fusion)
 
     state = load_state()
     seen = cls_seen_set(state)
     new_cls, new_fps = new_cls_rows(cls_df, seen)
 
-    now_ts = time.time()
-    last_sig = str(state.get("last_signature", "") or "")
-    last_push = float(state.get("last_push_ts", 0.0) or 0.0)
-
-    changed = (sig != last_sig) or bool(new_cls)
-    if not changed:
-        save_state(state)
-        logging.info("榜单与电报无新内容，不推送")
-        return
-
-    elapsed = now_ts - last_push if last_push > 0 else min_push
-    need_push = last_push <= 0
-    if new_cls:
-        need_push = need_push or (elapsed >= min_push_cls)
-    else:
-        need_push = need_push or (elapsed >= min_push)
+    triggered_news = (
+        filter_important_new_items(new_cls) if important_only else list(new_cls)
+    )
+    last_snap = str(state.get("last_snap_hash") or "")
+    snap_changed = snap_hash != last_snap
+    need_push = snap_changed or (len(triggered_news) > 0)
 
     if not need_push:
-        logging.info(
-            "有变化但处于推送冷却: elapsed=%.0fs min=%ss(cls=%ss)",
-            elapsed,
-            min_push,
-            min_push_cls,
-        )
-        save_state(state)
-        return
-
-    def _commit_cls_seen() -> None:
         for fp in new_fps:
             seen.add(fp)
         state["cls_seen"] = list(seen)
         trim_seen(state)
+        save_state(state)
+        logging.info(
+            "快照未变且无非重要电报，跳过推送；已静默消化 %s 条电报指纹",
+            len(new_fps),
+        )
+        return
+
+    now_ts = time.time()
+    last_push = float(state.get("last_push_ts", 0.0) or 0.0)
+    elapsed = now_ts - last_push if last_push > 0 else min_push
+    need_push2 = last_push <= 0
+    if triggered_news:
+        need_push2 = need_push2 or (elapsed >= min_push_cls)
+    else:
+        need_push2 = need_push2 or (elapsed >= min_push)
+
+    if not need_push2:
+        logging.info(
+            "满足推送条件但处于冷却: elapsed=%.0fs",
+            elapsed,
+        )
+        save_state(state)
+        return
+
+    sector_line = ""
+    if sector_on:
+        sector_line = fetch_concept_spot_summary(
+            top_n=int(os.getenv("HC_SECTOR_TOP_N", "8"))
+        )
 
     leaders_payload = fusion_rows_to_dicts(fusion)
     cls_corpus = cls_corpus_for_llm(
@@ -107,10 +122,10 @@ def run_cycle(*, force: bool) -> None:
     )
 
     lines = [
-        "### 热门龙头情报",
-        f"> 日期 {shanghai_today()} 上海 {shanghai_now().strftime('%H:%M:%S')} | 涨停池约 {len(zt)} 只 | 飙升榜约 {len(hot)} 只",
+        "### 热门龙头情报（含板块线索）",
+        f"> 日期 {shanghai_today()} 上海 {shanghai_now().strftime('%H:%M:%S')} | 涨停池约 {len(zt)} | 飙升榜约 {len(hot)}",
         "",
-        f"**融合 Top {top_n}（盘面）**",
+        f"**融合 Top {top_n}**（情绪高标 + 人气；**龙头含板块领头羊，见下栏整合**）",
     ]
     if fusion is None or fusion.empty:
         lines.append("（无数据或接口失败）")
@@ -132,33 +147,39 @@ def run_cycle(*, force: bool) -> None:
                 f"> 快照：{hint}"
             )
 
+    if sector_line:
+        lines.extend(["", "**概念板块·即时强弱（摘要）**", f"> {sector_line[:1200]}"])
+
     joint_md = ""
     if os.getenv("HC_DEEPSEEK_ENABLE", "0").strip() == "1":
-        joint = analyze_integrated_cls_and_leaders(leaders_payload, cls_corpus)
+        joint = analyze_integrated_cls_and_leaders(
+            leaders_payload, cls_corpus, sector_summary=sector_line
+        )
         if joint:
             joint_md = format_integrated_markdown(joint)
         else:
-            joint_md = (
-                "\n### 财联社整合\n"
-                "（DeepSeek 调用失败或未返回 JSON，请查日志；**本推送不含新闻列表**。）\n"
-            )
+            joint_md = "\n### 财联社整合\n（DeepSeek 未返回有效 JSON，见日志。）\n"
     else:
         joint_md = (
             "\n### 财联社整合\n"
-            "已拉取财联社语料用于下次分析；请设置 **`HC_DEEPSEEK_ENABLE=1`** 以生成「整合观点 + 方向与标的」。\n"
+            "已拉取语料；请设 **`HC_DEEPSEEK_ENABLE=1`** 生成整合与方向。\n"
         )
 
     body = "\n".join(lines) + "\n" + joint_md
-    body += "\n> 数据来源：AkShare / 东财 / 财联社；正文不列举电报原文；非投资建议。"
+    body += "\n> 数据来源：AkShare；**非投资建议**。电报正文不在此展示。"
 
     ok = push_markdown(body)
     if ok:
         state["last_push_ts"] = now_ts
         state["last_signature"] = sig
-        _commit_cls_seen()
-        logging.info("推送成功")
+        state["last_snap_hash"] = snap_hash
+        for fp in new_fps:
+            seen.add(fp)
+        state["cls_seen"] = list(seen)
+        trim_seen(state)
+        logging.info("推送成功 snap=%s…", snap_hash[:12])
     else:
-        logging.warning("推送失败，不写入电报已读")
+        logging.warning("推送失败，不更新快照与电报已读")
 
     save_state(state)
 
@@ -175,10 +196,10 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    poll = max(30, int(os.getenv("HC_POLL_INTERVAL_SEC", "90")))
+    poll = max(30, int(os.getenv("HC_POLL_INTERVAL_SEC", "45")))
 
     if args.loop:
-        logging.info("进入循环 poll=%ss", poll)
+        logging.info("进入循环 poll=%ss（默认与 AB 对齐 45s）", poll)
         while True:
             try:
                 if is_trading_time() or args.force:

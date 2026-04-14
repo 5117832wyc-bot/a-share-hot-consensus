@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 def analyze_integrated_cls_and_leaders(
     leaders: List[Dict[str, Any]],
     cls_corpus: str,
+    sector_summary: str = "",
 ) -> Optional[Dict[str, Any]]:
     """
     cls_corpus：仅供模型阅读的标题+正文截断拼接，**不得**出现在最终推送正文中。
@@ -33,14 +34,19 @@ def analyze_integrated_cls_and_leaders(
     corp = (cls_corpus or "").strip()
     if not corp:
         corp = "（当前未拉到财联社正文，仅依据榜单做保守归纳）"
+    sec = (sector_summary or "").strip() or "（未获取概念板块即时榜）"
 
     user = f"""你是 A 股快讯与盘面联动分析师。下列【财联社语料】仅为你内部阅读，用于整合判断，**禁止**在输出中逐条复述或枚举新闻标题。
+龙头包含**板块/题材领头羊**（未必涨停），请结合【概念板块强弱】与榜单交叉说明「为何像龙头」。
 
 【龙头榜单·结构化】（含 rule_hint，勿编造数值）
 {leaders_json}
 
+【概念板块·即时强弱摘要】（领头羊≠仅涨停）
+{sec[:4000]}
+
 【财联社语料·内部材料】
-{corp[:28000]}
+{corp[:24000]}
 
 请输出**仅一个 JSON**（不要 markdown 围栏），字段严格如下：
 {{
