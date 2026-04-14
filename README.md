@@ -41,13 +41,17 @@ python lhb_digest.py
 
 ## GitHub
 
+远端仓库：<https://github.com/5117832wyc-bot/a-share-hot-consensus>
+
 ```bash
-git init
-git add .
-git commit -m "feat: hot consensus monitor (zt+hot+cls)"
-git branch -M main
-git remote add origin git@github.com:YOUR_USER/a-share-hot-consensus.git
+git clone https://github.com/5117832wyc-bot/a-share-hot-consensus.git
+# 或 SSH：git@github.com:5117832wyc-bot/a-share-hot-consensus.git
+```
+
+本地已配置 `origin` 时，更新代码后：
+
+```bash
 git push -u origin main
 ```
 
-密钥勿入库；仓库建议私有。
+密钥勿入库；`.env` 仅放本机。
