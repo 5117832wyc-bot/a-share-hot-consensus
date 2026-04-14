@@ -11,7 +11,6 @@ import time
 from hot_consensus.deepseek_themes import analyze_titles
 from hot_consensus.env import load_repo_dotenv, repo_root
 from hot_consensus.fetch import (
-    date_str_yyyymmdd,
     fetch_cls_telegraph,
     fetch_hot_up,
     fetch_zt_pool,
@@ -19,7 +18,12 @@ from hot_consensus.fetch import (
 )
 from hot_consensus.fusion import build_fusion, signature
 from hot_consensus.state import cls_seen_set, load_state, save_state, trim_seen
-from hot_consensus.timeutil import is_trading_time, shanghai_now, shanghai_today
+from hot_consensus.timeutil import (
+    date_str_yyyymmdd,
+    is_trading_time,
+    shanghai_now,
+    shanghai_today,
+)
 from hot_consensus.wechat import push_markdown
 
 load_repo_dotenv()
