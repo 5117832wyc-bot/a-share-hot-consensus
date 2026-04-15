@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1] - 2026-04-15
+
+### Added
+
+- **沪深休市判断**：`hot_consensus/trading_calendar.py`（`ak.tool_trade_date_hist_sina`，按上海日历日缓存至 `.cache/cn_sse_trade_dates.json`）；`timeutil` 中 `is_trading_time` / 集合竞价窗 / 早盘窗均先校验交易日；`previous_trade_date` 跳过法定节假日。
+- **部署脚本**：`deploy/ensure_monitor_loop.sh`（仅交易日兜底拉起 `monitor --loop`）；`run_hot_consensus_trading_day.sh` 早盘入口增加休市直接退出。
+
+### Changed
+
+- 环境变量：`HC_TRADING_CAL_DISABLE`、`HC_TRADING_CAL_CACHE`（见 `.env.example`）。
+
 ## [0.2.0] - 2026-04-14
 
 ### Added

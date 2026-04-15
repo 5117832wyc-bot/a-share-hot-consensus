@@ -7,3 +7,4 @@ __pycache__/
 venv/
 hot_consensus_state.json
 *.cache
+.cache/

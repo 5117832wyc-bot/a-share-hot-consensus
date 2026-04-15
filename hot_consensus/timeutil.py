@@ -15,9 +15,9 @@ def shanghai_today() -> datetime.date:
 
 
 def is_trading_time() -> bool:
-    """沪深 A 股常规交易时段（不含盘前盘后）。"""
+    """沪深 A 股常规交易时段（不含盘前盘后）；非法定交易日全天视为非交易时段。"""
     now = shanghai_now()
-    if now.weekday() >= 5:
+    if not is_cn_stock_trading_day(now.date()):
         return False
     t = now.time()
     return (datetime.time(9, 30) <= t <= datetime.time(11, 30)) or (
@@ -31,8 +31,13 @@ def date_str_yyyymmdd(d: datetime.date | None = None) -> str:
 
 
 def previous_trade_date(ref: datetime.date | None = None) -> datetime.date:
-    """向前找到最近一个工作日（简化为跳过周末，不含节假日历）。"""
+    """向前找到最近一个沪深交易日（新浪日历；失败时退回仅跳过周末）。"""
     ref = ref or shanghai_today()
+    x = ref - datetime.timedelta(days=1)
+    for _ in range(400):
+        if is_cn_stock_trading_day(x):
+            return x
+        x -= datetime.timedelta(days=1)
     x = ref - datetime.timedelta(days=1)
     while x.weekday() >= 5:
         x -= datetime.timedelta(days=1)
@@ -42,7 +47,7 @@ def previous_trade_date(ref: datetime.date | None = None) -> datetime.date:
 def is_call_auction_window() -> bool:
     """集合竞价时段 9:15–9:30（不含连续竞价）。"""
     now = shanghai_now()
-    if now.weekday() >= 5:
+    if not is_cn_stock_trading_day(now.date()):
         return False
     t = now.time()
     return datetime.time(9, 15) <= t < datetime.time(9, 30)
@@ -51,7 +56,10 @@ def is_call_auction_window() -> bool:
 def is_early_open_window() -> bool:
     """开盘后短时分析窗 9:30–9:45（与 cron 对齐留余量）。"""
     now = shanghai_now()
-    if now.weekday() >= 5:
+    if not is_cn_stock_trading_day(now.date()):
         return False
     t = now.time()
     return datetime.time(9, 30) <= t <= datetime.time(9, 45)
+
+
+from hot_consensus.trading_calendar import is_cn_stock_trading_day  # noqa: E402

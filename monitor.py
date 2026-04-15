@@ -24,6 +24,7 @@ from hot_consensus.snapshot import fusion_snapshot_hash
 from hot_consensus.state import cls_seen_set, load_state, save_state, trim_seen
 from hot_consensus.timeutil import (
     date_str_yyyymmdd,
+    is_cn_stock_trading_day,
     is_trading_time,
     shanghai_now,
     shanghai_today,
@@ -47,8 +48,11 @@ def setup_logging() -> None:
 
 
 def run_cycle(*, force: bool) -> None:
+    if not force and not is_cn_stock_trading_day(shanghai_today()):
+        logging.info("非沪深交易日（休市），跳过（--force 可强制执行）")
+        return
     if not force and not is_trading_time():
-        logging.info("非交易时段，跳过（--force 可强制执行）")
+        logging.info("非连续竞价时段，跳过（--force 可强制执行）")
         return
 
     today = date_str_yyyymmdd()
@@ -205,7 +209,10 @@ def main() -> None:
                 if is_trading_time() or args.force:
                     run_cycle(force=args.force)
                 else:
-                    logging.info("非交易时段休眠")
+                    if not is_cn_stock_trading_day(shanghai_today()):
+                        logging.info("非沪深交易日（休市）休眠")
+                    else:
+                        logging.info("非交易时段休眠")
             except Exception:
                 logging.exception("本轮异常")
             time.sleep(poll)

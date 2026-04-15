@@ -1,8 +1,17 @@
-# 盘中：与 monitor.py --loop 二选一；若不用 loop，可用 cron 每 45s~1min 跑一次 once
-# * 9-11,13-15 * * 1-5 cd /root/code/a-share-hot-consensus && /path/to/python monitor.py --once >>/root/code/a-share-hot-consensus/cron.log 2>&1
+# a-share-hot-consensus — 复制到 crontab -e（路径按机器修改）
+# Python 需已安装 requirements.txt（示例：/root/miniconda3/bin/python3）
 
-# 早盘/集合竞价（示例：9:26、9:31、9:35；需 HC_AUCTION_SLOT=any 若机器不在该时刻）
-# 26,31,35 9 * * 1-5 cd /root/code/a-share-hot-consensus && /path/to/python auction_morning.py --force >>/root/code/a-share-hot-consensus/auction.log 2>&1
+# 早盘：竞价后龙头预案 + 确保盘中 monitor --loop 已启动（工作日 9:25）
+25 9 * * 1-5 /bin/bash /root/code/a-share-hot-consensus/deploy/run_hot_consensus_trading_day.sh >> /root/code/a-share-hot-consensus/cron_trading.log 2>&1
 
-# 盘后龙虎榜（约 17:00 后）
-# 10 17 * * 1-5 cd /root/code/a-share-hot-consensus && /path/to/python lhb_digest.py >>/root/code/a-share-hot-consensus/lhb_digest.log 2>&1
+# 午后兜底：仅沪深交易日且进程不存在时拉起 monitor --loop（工作日 15:10）
+10 15 * * 1-5 /bin/bash /root/code/a-share-hot-consensus/deploy/ensure_monitor_loop.sh >> /root/code/a-share-hot-consensus/cron_trading.log 2>&1
+
+# 可选：开盘后第二次早盘快照（须距上次 ≥ HC_AUCTION_MIN_INTERVAL_SEC，默认 600s → 宜 9:36 及以后）
+# 36 9 * * 1-5 cd /root/code/a-share-hot-consensus && set -a && [ -f .env ] && . ./.env && set +a && /root/miniconda3/bin/python3 /root/code/a-share-hot-consensus/auction_morning.py >> /root/code/a-share-hot-consensus/cron_trading.log 2>&1
+
+# 可选：不用 loop 时改为每分钟跑一次（与 HC_POLL_INTERVAL_SEC 二选一）
+# * 9-11,13-15 * * 1-5 cd /root/code/a-share-hot-consensus && /root/miniconda3/bin/python3 /root/code/a-share-hot-consensus/monitor.py --once >> /root/code/a-share-hot-consensus/cron_once.log 2>&1
+
+# 可选：盘后龙虎榜
+# 10 17 * * 1-5 cd /root/code/a-share-hot-consensus && /root/miniconda3/bin/python3 /root/code/a-share-hot-consensus/lhb_digest.py >> /root/code/a-share-hot-consensus/lhb_digest.log 2>&1

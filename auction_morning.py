@@ -23,6 +23,7 @@ from hot_consensus.state import load_state, save_state
 from hot_consensus.timeutil import (
     date_str_yyyymmdd,
     is_call_auction_window,
+    is_cn_stock_trading_day,
     is_early_open_window,
     previous_trade_date,
     shanghai_now,
@@ -48,8 +49,8 @@ def setup_logging() -> None:
 
 def run_auction(*, force: bool) -> None:
     today = shanghai_today()
-    if today.weekday() >= 5 and not force:
-        logging.info("周末跳过（--force 可执行）")
+    if not force and not is_cn_stock_trading_day(today):
+        logging.info("非沪深交易日（周末或法定休市），跳过（--force 可执行）")
         return
 
     now = shanghai_now()

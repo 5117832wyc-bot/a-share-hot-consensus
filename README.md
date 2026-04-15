@@ -1,6 +1,6 @@
 # a-share-hot-consensus
 
-**版本**：`0.2.0`（见 `hot_consensus/__init__.py`、`CHANGELOG.md`，Git 打 tag **`v0.2.0`**）
+**版本**：`0.2.1`（见 `hot_consensus/__init__.py`、`CHANGELOG.md`，Git 打 tag **`v0.2.1`**）
 
 独立于 [ab-stock-quant](../ab-stock-quant) 的 A 股「热门龙头 / 共识情报」：**龙头含板块领头羊（未必涨停）**；涨停池 + 飙升榜 + 概念板块强弱 + 财联社（仅作语料，**推送不逐条列新闻**）。
 
@@ -41,6 +41,8 @@ python auction_morning.py --force   # 测一次
 
 | 变量 | 说明 |
 |------|------|
+| `HC_TRADING_CAL_DISABLE` | 默认 **0**：用 AkShare 新浪历区分**法定节假日休市**；`1` 时退回仅周一至周五 |
+| `HC_TRADING_CAL_CACHE` | 可选：交易日 JSON 缓存路径（默认项目根 `.cache/cn_sse_trade_dates.json`） |
 | `HC_POLL_INTERVAL_SEC` | 默认 **45**（与 AB 一致） |
 | `HC_CLS_IMPORTANT_ONLY` | 默认 **1**：仅「重要电报」可单独触发推送（关键词可配 `HC_CLS_KEYWORDS`） |
 | `HC_CLS_GATE_DISABLE` | `1` 关闭门控（调试用） |
