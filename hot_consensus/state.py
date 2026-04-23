@@ -25,6 +25,7 @@ def load_state() -> Dict[str, Any]:
             "last_signature": "",
             "last_snap_hash": "",
             "last_auction_push_ts": 0.0,
+            "last_pre_pm_digest_date": "",
         }
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -37,6 +38,7 @@ def load_state() -> Dict[str, Any]:
                 "last_signature": "",
                 "last_snap_hash": "",
                 "last_auction_push_ts": 0.0,
+                "last_pre_pm_digest_date": "",
             }
         data.setdefault("version", 1)
         data.setdefault("cls_seen", [])
@@ -44,6 +46,7 @@ def load_state() -> Dict[str, Any]:
         data.setdefault("last_signature", "")
         data.setdefault("last_snap_hash", "")
         data.setdefault("last_auction_push_ts", 0.0)
+        data.setdefault("last_pre_pm_digest_date", "")
         if int(data.get("version", 1)) < 2:
             data["version"] = 2
         return data
@@ -55,6 +58,7 @@ def load_state() -> Dict[str, Any]:
             "last_signature": "",
             "last_snap_hash": "",
             "last_auction_push_ts": 0.0,
+            "last_pre_pm_digest_date": "",
         }
 
 

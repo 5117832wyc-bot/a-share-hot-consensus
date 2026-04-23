@@ -25,6 +25,7 @@ from hot_consensus.state import cls_seen_set, load_state, save_state, trim_seen
 from hot_consensus.timeutil import (
     date_str_yyyymmdd,
     is_cn_stock_trading_day,
+    is_pre_afternoon_snapshot_window,
     is_trading_time,
     shanghai_now,
     shanghai_today,
@@ -47,11 +48,19 @@ def setup_logging() -> None:
     )
 
 
-def run_cycle(*, force: bool) -> None:
+def run_cycle(*, force: bool, scheduled: bool = False) -> None:
     if not force and not is_cn_stock_trading_day(shanghai_today()):
         logging.info("非沪深交易日（休市），跳过（--force 可强制执行）")
         return
-    if not force and not is_trading_time():
+
+    pre_pm = scheduled and is_pre_afternoon_snapshot_window()
+    if scheduled and not force and not pre_pm:
+        logging.info(
+            "--scheduled 仅在午休中下午开盘前窗口执行（约 12:25–12:50 上海），当前时刻跳过"
+        )
+        return
+
+    if not force and not is_trading_time() and not pre_pm:
         logging.info("非连续竞价时段，跳过（--force 可强制执行）")
         return
 
@@ -83,7 +92,11 @@ def run_cycle(*, force: bool) -> None:
     )
     last_snap = str(state.get("last_snap_hash") or "")
     snap_changed = snap_hash != last_snap
-    need_push = snap_changed or (len(triggered_news) > 0)
+    digest_date = str(state.get("last_pre_pm_digest_date") or "")
+    pre_pm_digest_due = pre_pm and digest_date != today
+    need_push = (
+        snap_changed or (len(triggered_news) > 0) or pre_pm_digest_due
+    )
 
     if not need_push:
         for fp in new_fps:
@@ -105,6 +118,8 @@ def run_cycle(*, force: bool) -> None:
         need_push2 = need_push2 or (elapsed >= min_push_cls)
     else:
         need_push2 = need_push2 or (elapsed >= min_push)
+    if pre_pm_digest_due:
+        need_push2 = True
 
     if not need_push2:
         logging.info(
@@ -125,9 +140,10 @@ def run_cycle(*, force: bool) -> None:
         cls_df, max_items=corp_items, title_max=title_max, content_max=content_max
     )
 
+    slot_note = " | 下午开盘前" if pre_pm else ""
     lines = [
         "### 热门龙头情报（含板块线索）",
-        f"> 日期 {shanghai_today()} 上海 {shanghai_now().strftime('%H:%M:%S')} | 涨停池约 {len(zt)} | 飙升榜约 {len(hot)}",
+        f"> 日期 {shanghai_today()} 上海 {shanghai_now().strftime('%H:%M:%S')} | 涨停池约 {len(zt)} | 飙升榜约 {len(hot)}{slot_note}",
         "",
         f"**融合 Top {top_n}**（情绪高标 + 人气；**龙头含板块领头羊，见下栏整合**）",
     ]
@@ -177,6 +193,8 @@ def run_cycle(*, force: bool) -> None:
         state["last_push_ts"] = now_ts
         state["last_signature"] = sig
         state["last_snap_hash"] = snap_hash
+        if pre_pm:
+            state["last_pre_pm_digest_date"] = today
         for fp in new_fps:
             seen.add(fp)
         state["cls_seen"] = list(seen)
@@ -192,6 +210,14 @@ def main() -> None:
     setup_logging()
     p = argparse.ArgumentParser(description="A 股热门龙头情报监控")
     p.add_argument("--once", action="store_true", help="只跑一轮")
+    p.add_argument(
+        "--scheduled",
+        action="store_true",
+        help=(
+            "仅用于午休中下午开盘前（约 12:25–12:50）：允许在非连续竞价时段跑同一套"
+            "「快照变化 / 重要电报 / 当日首次盘前 digest」触发逻辑"
+        ),
+    )
     p.add_argument("--force", action="store_true", help="忽略交易时段")
     p.add_argument(
         "--loop",
@@ -203,11 +229,14 @@ def main() -> None:
     poll = max(30, int(os.getenv("HC_POLL_INTERVAL_SEC", "45")))
 
     if args.loop:
+        if args.scheduled:
+            logging.error("--loop 与 --scheduled 不能同时使用")
+            sys.exit(2)
         logging.info("进入循环 poll=%ss（默认与 AB 对齐 45s）", poll)
         while True:
             try:
                 if is_trading_time() or args.force:
-                    run_cycle(force=args.force)
+                    run_cycle(force=args.force, scheduled=False)
                 else:
                     if not is_cn_stock_trading_day(shanghai_today()):
                         logging.info("非沪深交易日（休市）休眠")
@@ -218,7 +247,7 @@ def main() -> None:
             time.sleep(poll)
         return
 
-    run_cycle(force=args.force)
+    run_cycle(force=args.force, scheduled=args.scheduled)
     if not args.once:
         logging.info("单次运行结束（使用 --loop 持续运行）")
 

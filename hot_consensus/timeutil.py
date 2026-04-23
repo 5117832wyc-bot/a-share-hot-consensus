@@ -62,4 +62,13 @@ def is_early_open_window() -> bool:
     return datetime.time(9, 30) <= t <= datetime.time(9, 45)
 
 
+def is_pre_afternoon_snapshot_window() -> bool:
+    """午休中、下午开盘前参考窗 12:25–12:50（与 cron 12:30 对齐）。"""
+    now = shanghai_now()
+    if not is_cn_stock_trading_day(now.date()):
+        return False
+    t = now.time()
+    return datetime.time(12, 25) <= t < datetime.time(12, 50)
+
+
 from hot_consensus.trading_calendar import is_cn_stock_trading_day  # noqa: E402

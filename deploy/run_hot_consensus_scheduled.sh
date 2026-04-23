@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 交易日 9:25：集合竞价后「早盘龙头预案」（auction_morning.py）；不拉起 monitor --loop。
+# 交易日 12:30：「热门龙头情报」——须落在 12:25–12:50 上海窗内，与盘中同一套触发逻辑（见 monitor.py --scheduled）
 set -euo pipefail
 
 ROOT_DIR="/root/code/a-share-hot-consensus"
@@ -19,11 +19,4 @@ if [ -f "$ROOT_DIR/.env" ]; then
   set +a
 fi
 
-set +e
-"$PYTHON_BIN" "$ROOT_DIR/auction_morning.py"
-auc=$?
-set -e
-if [ "$auc" -ne 0 ]; then
-  echo "$(date -Is) auction_morning.py exit=$auc" >&2
-  exit "$auc"
-fi
+exec "$PYTHON_BIN" "$ROOT_DIR/monitor.py" --once --scheduled

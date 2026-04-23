@@ -24,6 +24,9 @@ python monitor.py --once --force
 
 # 持续循环（默认 45s 与 AB 对齐）
 python monitor.py --loop
+
+# 午休中下午开盘前跑一次「热门龙头情报」（须在上海 12:25–12:50；与盘中同一套快照/电报/digest 触发逻辑）
+python monitor.py --once --scheduled
 ```
 
 **集合竞价 / 早盘预案**（独立冷却，与盘中分流）：
@@ -33,7 +36,7 @@ python auction_morning.py --force   # 测一次
 # 生产：cron 在 9:25、9:31、9:35 等调用；或 HC_AUCTION_SLOT=any
 ```
 
-**是否盘中实时**：与选股一样为 **HTTP 轮询**；默认 **`HC_POLL_INTERVAL_SEC=45`**；需常驻请 **`--loop`** 或 cron。
+**是否盘中实时**：与选股一样为 **HTTP 轮询**；默认 **`HC_POLL_INTERVAL_SEC=45`**；需常驻请 **`--loop`** 或 cron。若采用 **「9:25 `auction_morning.py` 预案 + 12:30 `monitor.py --scheduled` 情报」**：预案与情报**分流**；情报侧 **`--scheduled`** 仅在 **12:25–12:50（上海）** 生效，触发条件与盘中一致：**快照变化**、**重要电报**、或**当日尚未记过的下午盘前 digest**（见 `monitor.py`）。示例见 **`deploy/crontab.example`**。
 
 **企业微信**：单条约 **4096 字节（UTF-8）**；超长 **自动分多段**（`HC_WECHAT_CHUNK_DELAY_SEC`）。
 
